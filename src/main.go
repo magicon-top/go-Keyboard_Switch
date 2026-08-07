@@ -15,10 +15,11 @@ import (
 const (
 	WH_KEYBOARD_LL = 13
 
-	WM_KEYDOWN    = 0x0100
-	WM_KEYUP      = 0x0101
-	WM_SYSKEYDOWN = 0x0104
-	WM_SYSKEYUP   = 0x0105
+	WM_KEYDOWN      = 0x0100
+	WM_KEYUP        = 0x0101
+	WM_SYSKEYDOWN   = 0x0104
+	WM_SYSKEYUP     = 0x0105
+	WM_SETCURSOR    = 0x0020
 
 	VK_LCONTROL = 0xA2
 	VK_RCONTROL = 0xA3
@@ -50,16 +51,16 @@ const (
 	SM_CXVIRTUALSCREEN = 78
 	SM_CYVIRTUALSCREEN = 79
 
-	WM_PAINT              = 0x000F
-	WM_ERASEBKGND         = 0x0014
-	WM_NCHITTEST          = 0x0084
-	WM_LBUTTONDBLCLK      = 0x0203
-	WM_RBUTTONDOWN        = 0x0204
-	WM_RBUTTONUP          = 0x0205 // Правый клик по рамке (Client)
-	WM_NCLBUTTONDBLCLK    = 0x00A3
-	WM_NCRBUTTONDOWN      = 0x00A4
-	WM_NCRBUTTONUP        = 0x00A5 // Правый клик по рамке (Non-Client)
-	WM_APP_REDRAW         = 0x8001
+	WM_PAINT            = 0x000F
+	WM_ERASEBKGND       = 0x0014
+	WM_NCHITTEST        = 0x0084
+	WM_LBUTTONDBLCLK    = 0x0203
+	WM_RBUTTONDOWN      = 0x0204
+	WM_RBUTTONUP        = 0x0205 // Правый клик по рамке (Client)
+	WM_NCLBUTTONDBLCLK  = 0x00A3
+	WM_NCRBUTTONDOWN    = 0x00A4
+	WM_NCRBUTTONUP      = 0x00A5 // Правый клик по рамке (Non-Client)
+	WM_APP_REDRAW       = 0x8001
 
 	HTCLIENT = 1
 
@@ -140,8 +141,8 @@ var (
 	procInvalidateRect             = user32.NewProc("InvalidateRect")
 	procPostQuitMessage            = user32.NewProc("PostQuitMessage")
 
-	procBeep        = kernel32.NewProc("Beep")
-	procCreateMutex = kernel32.NewProc("CreateMutexW")
+	procBeep          = kernel32.NewProc("Beep")
+	procCreateMutex   = kernel32.NewProc("CreateMutexW")
 
 	procCreateSolidBrush = gdi32.NewProc("CreateSolidBrush")
 	procDeleteObject     = gdi32.NewProc("DeleteObject")
@@ -150,23 +151,23 @@ var (
 	hookHandle  uintptr
 	overlayHwnd uintptr
 
-	stateMu            sync.RWMutex
-	currentBorderColor uint32 = 0
-	hasBorder          bool   = false
-	soundEnabled       bool   = true
-	lastHKL            uintptr
+	stateMu              sync.RWMutex
+	currentBorderColor   uint32 = 0
+	hasBorder            bool   = false
+	soundEnabled         bool   = true
+	lastHKL              uintptr
 
-	pressedKey     uint32
-	pressTime      time.Time
-	isComboPressed bool
-	maxTapDuration = 400 * time.Millisecond
+	pressedKey       uint32
+	pressTime        time.Time
+	isComboPressed   bool
+	maxTapDuration   = 400 * time.Millisecond
 
-	borderThickness = int32(4)
+	borderThickness  = int32(4)
 
-	typingSoundChan = make(chan uint32, 50)
+	typingSoundChan  = make(chan uint32, 50)
 
-	layoutsMu     sync.RWMutex
-	cachedLayouts []uintptr
+	layoutsMu        sync.RWMutex
+	cachedLayouts    []uintptr
 )
 
 const (
@@ -480,6 +481,9 @@ func windowProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 	switch msg {
 	case WM_ERASEBKGND:
 		return 1
+
+	case WM_SETCURSOR:
+		return 1 // Предотвращает изменение системного курсора при наведении на окно
 
 	case WM_NCHITTEST:
 		stateMu.RLock()
