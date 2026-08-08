@@ -11,7 +11,6 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// Win32 API Константы
 const (
 	WH_KEYBOARD_LL = 13
 
@@ -40,7 +39,7 @@ const (
 	WS_EX_TOPMOST    = 0x00000008
 	WS_EX_LAYERED    = 0x00080000
 	WS_EX_TOOLWINDOW = 0x00000080
-	WS_EX_NOACTIVATE = 0x08000000 // Клик по оверлею не забирает фокус у активного окна
+	WS_EX_NOACTIVATE = 0x08000000
 
 	CS_DBLCLKS = 0x0008
 
@@ -56,20 +55,19 @@ const (
 	WM_NCHITTEST       = 0x0084
 	WM_LBUTTONDBLCLK   = 0x0203
 	WM_RBUTTONDOWN     = 0x0204
-	WM_RBUTTONUP       = 0x0205 // Правый клик по рамке (Client)
+	WM_RBUTTONUP       = 0x0205
 	WM_NCLBUTTONDBLCLK = 0x00A3
 	WM_NCRBUTTONDOWN   = 0x00A4
-	WM_NCRBUTTONUP     = 0x00A5 // Правый клик по рамке (Non-Client)
+	WM_NCRBUTTONUP     = 0x00A5
 	WM_APP_REDRAW      = 0x8001
 
 	HTCLIENT = 1
 
 	ERROR_ALREADY_EXISTS = 183
 
-	IDC_ARROW = 32512 // Константа для стандартного курсора мыши
+	IDC_ARROW = 32512
 )
 
-// HTTRANSPARENT как uintptr (-1 в битовом представлении)
 var HTTRANSPARENT = ^uintptr(0)
 
 type KBDLLHOOKSTRUCT struct {
@@ -117,33 +115,46 @@ type WNDCLASSEX struct {
 	IconSm     uintptr
 }
 
+type GUITHREADINFO struct {
+	CbSize        uint32
+	Flags         uint32
+	HwndActive    uintptr
+	HwndFocus     uintptr
+	HwndCapture   uintptr
+	HwndMenuOwner uintptr
+	HwndMoveSize  uintptr
+	HwndCaret     uintptr
+	RcCaret       RECT
+}
+
 var (
 	user32   = windows.NewLazySystemDLL("user32.dll")
 	kernel32 = windows.NewLazySystemDLL("kernel32.dll")
 	gdi32    = windows.NewLazySystemDLL("gdi32.dll")
 
-	procSetProcessDPIAware         = user32.NewProc("SetProcessDPIAware")
-	procSetWindowsHookEx           = user32.NewProc("SetWindowsHookExW")
-	procUnhookWindowsHookEx        = user32.NewProc("UnhookWindowsHookEx")
-	procCallNextHookEx             = user32.NewProc("CallNextHookEx")
-	procGetMessage                 = user32.NewProc("GetMessageW")
-	procDispatchMessage            = user32.NewProc("DispatchMessageW")
-	procGetForegroundWindow        = user32.NewProc("GetForegroundWindow")
-	procGetWindowThreadProcessId   = user32.NewProc("GetWindowThreadProcessId")
-	procGetKeyboardLayout          = user32.NewProc("GetKeyboardLayout")
-	procPostMessage                = user32.NewProc("PostMessageW")
-	procGetKeyboardLayoutList      = user32.NewProc("GetKeyboardLayoutList")
-	procGetSystemMetrics           = user32.NewProc("GetSystemMetrics")
-	procCreateWindowEx             = user32.NewProc("CreateWindowExW")
-	procRegisterClassEx            = user32.NewProc("RegisterClassExW")
-	procShowWindow                 = user32.NewProc("ShowWindow")
-	procSetLayeredWindowAttributes = user32.NewProc("SetLayeredWindowAttributes")
-	procBeginPaint                 = user32.NewProc("BeginPaint")
-	procEndPaint                   = user32.NewProc("EndPaint")
-	procInvalidateRect             = user32.NewProc("InvalidateRect")
-	procPostQuitMessage            = user32.NewProc("PostQuitMessage")
-	procFillRect                   = user32.NewProc("FillRect")
-	procLoadCursor                 = user32.NewProc("LoadCursorW") // Загрузка курсора
+	procSetProcessDPIAware          = user32.NewProc("SetProcessDPIAware")
+	procSetWindowsHookEx            = user32.NewProc("SetWindowsHookExW")
+	procUnhookWindowsHookEx         = user32.NewProc("UnhookWindowsHookEx")
+	procCallNextHookEx              = user32.NewProc("CallNextHookEx")
+	procGetMessage                  = user32.NewProc("GetMessageW")
+	procDispatchMessage             = user32.NewProc("DispatchMessageW")
+	procGetForegroundWindow         = user32.NewProc("GetForegroundWindow")
+	procGetWindowThreadProcessId    = user32.NewProc("GetWindowThreadProcessId")
+	procGetKeyboardLayout           = user32.NewProc("GetKeyboardLayout")
+	procPostMessage                 = user32.NewProc("PostMessageW")
+	procGetKeyboardLayoutList       = user32.NewProc("GetKeyboardLayoutList")
+	procGetSystemMetrics            = user32.NewProc("GetSystemMetrics")
+	procCreateWindowEx              = user32.NewProc("CreateWindowExW")
+	procRegisterClassEx             = user32.NewProc("RegisterClassExW")
+	procShowWindow                  = user32.NewProc("ShowWindow")
+	procSetLayeredWindowAttributes  = user32.NewProc("SetLayeredWindowAttributes")
+	procBeginPaint                  = user32.NewProc("BeginPaint")
+	procEndPaint                    = user32.NewProc("EndPaint")
+	procInvalidateRect              = user32.NewProc("InvalidateRect")
+	procPostQuitMessage             = user32.NewProc("PostQuitMessage")
+	procFillRect                    = user32.NewProc("FillRect")
+	procLoadCursor                  = user32.NewProc("LoadCursorW")
+	procGetGUIThreadInfo            = user32.NewProc("GetGUIThreadInfo")
 
 	procBeep        = kernel32.NewProc("Beep")
 	procCreateMutex = kernel32.NewProc("CreateMutexW")
@@ -175,9 +186,11 @@ var (
 
 const (
 	mutexName     = "Global\\LangSwitcherAppMutex"
-	crTransparent = 0x00FF00FF // Magenta
+	crTransparent = 0x00FF00FF
 )
 
+//________________
+//Initializes a goroutine for playing sound effects. initSoundWorker
 func initSoundWorker() {
 	go func() {
 		for freq := range typingSoundChan {
@@ -188,6 +201,8 @@ func initSoundWorker() {
 	}()
 }
 
+//________________
+//Retrieves active system keyboard layouts from cache. getKeyboardLayouts
 func getKeyboardLayouts() []uintptr {
 	layoutsMu.RLock()
 	if len(cachedLayouts) > 0 {
@@ -196,10 +211,11 @@ func getKeyboardLayouts() []uintptr {
 		return res
 	}
 	layoutsMu.RUnlock()
-
 	return refreshKeyboardLayouts()
 }
 
+//________________
+//Refreshes cached list of system keyboard layouts. refreshKeyboardLayouts
 func refreshKeyboardLayouts() []uintptr {
 	count, _, _ := procGetKeyboardLayoutList.Call(0, 0)
 	if count == 0 {
@@ -207,54 +223,35 @@ func refreshKeyboardLayouts() []uintptr {
 	}
 	layouts := make([]uintptr, count)
 	procGetKeyboardLayoutList.Call(count, uintptr(unsafe.Pointer(&layouts[0])))
-
 	layoutsMu.Lock()
 	cachedLayouts = layouts
 	layoutsMu.Unlock()
-
 	return layouts
 }
 
+//________________
+//Main application loop initializing window and hooks. main
 func main() {
 	runtime.LockOSThread()
-
 	procSetProcessDPIAware.Call()
-
 	mName, _ := syscall.UTF16PtrFromString(mutexName)
-
 	hMutex, _, errMutex := procCreateMutex.Call(0, 1, uintptr(unsafe.Pointer(mName)))
 	if hMutex == 0 || (errMutex != nil && errMutex == windows.ERROR_ALREADY_EXISTS) {
-		fmt.Println("Программа уже запущена.")
+		fmt.Println("Application already running")
 		return
 	}
-
 	refreshKeyboardLayouts()
 	initSoundWorker()
-
-	fmt.Println("Служба переключателя раскладки запущена...")
-	fmt.Println("Ctrl  -> 1-й язык (Красная рамка + звук 400Гц)")
-	fmt.Println("Shift -> 2-й язык (Без рамки + звук 800Гц)")
-	fmt.Println("Alt   -> 3-й язык (Желтая рамка + звук 1200Гц)")
-	fmt.Println("Правый клик по рамке  -> Включить / Отключить звук печати")
-	fmt.Println("Двойной клик по рамке -> Закрыть программу")
-
+	fmt.Println("Started successfully")
 	createOverlayWindow()
-
 	go trackLanguageChanges()
-
-	hook, _, _ := procSetWindowsHookEx.Call(
-		uintptr(WH_KEYBOARD_LL),
-		syscall.NewCallback(keyboardProc),
-		0,
-		0,
-	)
+	hook, _, _ := procSetWindowsHookEx.Call(uintptr(WH_KEYBOARD_LL), syscall.NewCallback(keyboardProc), 0, 0)
 	if hook == 0 {
-		fmt.Println("Ошибка установки хука клавиатуры!")
+		fmt.Println("Failed to install keyboard hook")
 		return
 	}
 	hookHandle = hook
 	defer procUnhookWindowsHookEx.Call(hookHandle)
-
 	var msg MSG
 	for {
 		ret, _, _ := procGetMessage.Call(uintptr(unsafe.Pointer(&msg)), 0, 0, 0)
@@ -265,46 +262,43 @@ func main() {
 	}
 }
 
+//________________
+//Monitors active window layout changes periodically. trackLanguageChanges
 func trackLanguageChanges() {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
-
 	for range ticker.C {
 		hwnd, _, _ := procGetForegroundWindow.Call()
 		if hwnd == 0 {
 			continue
 		}
-
 		threadID, _, _ := procGetWindowThreadProcessId.Call(hwnd, 0)
 		if threadID == 0 {
 			continue
 		}
-
 		hkl, _, _ := procGetKeyboardLayout.Call(threadID)
 		if hkl == 0 {
 			continue
 		}
-
 		stateMu.RLock()
 		prevHKL := lastHKL
 		stateMu.RUnlock()
-
 		if hkl != prevHKL {
 			stateMu.Lock()
 			lastHKL = hkl
 			stateMu.Unlock()
-
 			updateBorderForHKL(hkl)
 		}
 	}
 }
 
+//________________
+//Updates overlay color based on selected layout index. updateBorderForHKL
 func updateBorderForHKL(hkl uintptr) {
 	layouts := getKeyboardLayouts()
 	if len(layouts) == 0 {
 		return
 	}
-
 	index := -1
 	for i, l := range layouts {
 		if l == hkl {
@@ -312,7 +306,6 @@ func updateBorderForHKL(hkl uintptr) {
 			break
 		}
 	}
-
 	if index == -1 {
 		layouts = refreshKeyboardLayouts()
 		for i, l := range layouts {
@@ -325,34 +318,32 @@ func updateBorderForHKL(hkl uintptr) {
 			return
 		}
 	}
-
 	stateMu.Lock()
 	switch index {
 	case 0:
 		hasBorder = true
-		currentBorderColor = 0x000000FF // Красный
+		currentBorderColor = 0x000000FF
 	case 1:
 		hasBorder = false
 	case 2:
 		hasBorder = true
-		currentBorderColor = 0x0000FFFF // Желтый
+		currentBorderColor = 0x0000FFFF
 	default:
 		hasBorder = false
 	}
 	stateMu.Unlock()
-
 	if overlayHwnd != 0 {
 		procPostMessage.Call(overlayHwnd, WM_APP_REDRAW, 0, 0)
 	}
 }
 
+//________________
+//Processes keyboard low level hooks for shortcut events. keyboardProc
 func keyboardProc(nCode int, wParam uintptr, lParam uintptr) uintptr {
 	if nCode >= 0 {
 		kbd := (*KBDLLHOOKSTRUCT)(unsafe.Pointer(lParam))
 		vk := kbd.VkCode
-
 		shouldPlaySound := false
-
 		stateMu.Lock()
 		if wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN {
 			if isTargetKey(vk) {
@@ -386,7 +377,6 @@ func keyboardProc(nCode int, wParam uintptr, lParam uintptr) uintptr {
 			}
 		}
 		stateMu.Unlock()
-
 		if shouldPlaySound {
 			playTypingSound()
 		}
@@ -395,31 +385,50 @@ func keyboardProc(nCode int, wParam uintptr, lParam uintptr) uintptr {
 	return ret
 }
 
+//________________
+//Evaluates if key belongs to active target modifiers. isTargetKey
 func isTargetKey(vk uint32) bool {
 	return isCtrl(vk) || isShift(vk) || isAlt(vk)
 }
-func isCtrl(vk uint32) bool  { return vk == VK_LCONTROL || vk == VK_RCONTROL || vk == VK_CONTROL }
-func isShift(vk uint32) bool { return vk == VK_LSHIFT || vk == VK_RSHIFT || vk == VK_SHIFT }
-func isAlt(vk uint32) bool   { return vk == VK_LMENU || vk == VK_RMENU || vk == VK_MENU }
+
+//________________
+//Checks for Control virtual key codes. isCtrl
+func isCtrl(vk uint32) bool {
+	return vk == VK_LCONTROL || vk == VK_RCONTROL || vk == VK_CONTROL
+}
+
+//________________
+//Checks for Shift virtual key codes. isShift
+func isShift(vk uint32) bool {
+	return vk == VK_LSHIFT || vk == VK_RSHIFT || vk == VK_SHIFT
+}
+
+//________________
+//Checks for Alt virtual key codes. isAlt
+func isAlt(vk uint32) bool {
+	return vk == VK_LMENU || vk == VK_RMENU || vk == VK_MENU
+}
+
+//________________
+//Verifies if keyup corresponds to initial keydown event. isBaseKeyMatch
 func isBaseKeyMatch(k1, k2 uint32) bool {
 	return (isCtrl(k1) && isCtrl(k2)) || (isShift(k1) && isShift(k2)) || (isAlt(k1) && isAlt(k2))
 }
 
+//________________
+//Dispatches typing sound frequency to worker channel. playTypingSound
 func playTypingSound() {
 	stateMu.RLock()
 	enabled := soundEnabled
 	currentHKL := lastHKL
 	stateMu.RUnlock()
-
 	if !enabled || currentHKL == 0 {
 		return
 	}
-
 	layouts := getKeyboardLayouts()
 	if len(layouts) == 0 {
 		return
 	}
-
 	currentIndex := 0
 	for i, l := range layouts {
 		if l == currentHKL {
@@ -427,7 +436,6 @@ func playTypingSound() {
 			break
 		}
 	}
-
 	var freq uint32
 	switch currentIndex {
 	case 0:
@@ -437,7 +445,6 @@ func playTypingSound() {
 	default:
 		freq = 1200
 	}
-
 	if freq > 0 {
 		select {
 		case typingSoundChan <- freq:
@@ -446,6 +453,8 @@ func playTypingSound() {
 	}
 }
 
+//________________
+//Sends layout switch message to active window and focused control. applyLanguage
 func applyLanguage(index int, freq uint32, colorRGB uint32) {
 	layouts := getKeyboardLayouts()
 	if len(layouts) == 0 {
@@ -455,16 +464,20 @@ func applyLanguage(index int, freq uint32, colorRGB uint32) {
 		index = len(layouts) - 1
 	}
 	targetHKL := layouts[index]
-
 	hwnd, _, _ := procGetForegroundWindow.Call()
 	if hwnd != 0 {
 		procPostMessage.Call(hwnd, WM_INPUTLANGCHANGEREQUEST, INPUTLANGCHANGE_FORWARD, targetHKL)
+		threadID, _, _ := procGetWindowThreadProcessId.Call(hwnd, 0)
+		var gti GUITHREADINFO
+		gti.CbSize = uint32(unsafe.Sizeof(gti))
+		ret, _, _ := procGetGUIThreadInfo.Call(threadID, uintptr(unsafe.Pointer(&gti)))
+		if ret != 0 && gti.HwndFocus != 0 && gti.HwndFocus != hwnd {
+			procPostMessage.Call(gti.HwndFocus, WM_INPUTLANGCHANGEREQUEST, INPUTLANGCHANGE_FORWARD, targetHKL)
+		}
 	}
-
 	if freq > 0 {
 		procBeep.Call(uintptr(freq), 100)
 	}
-
 	stateMu.Lock()
 	lastHKL = targetHKL
 	if colorRGB == 0 {
@@ -474,32 +487,26 @@ func applyLanguage(index int, freq uint32, colorRGB uint32) {
 		currentBorderColor = colorRGB
 	}
 	stateMu.Unlock()
-
 	if overlayHwnd != 0 {
 		procPostMessage.Call(overlayHwnd, WM_APP_REDRAW, 0, 0)
 	}
 }
 
+//________________
+//Processes window messages for overlay rendering and clicks. windowProc
 func windowProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 	switch msg {
 	case WM_ERASEBKGND:
 		return 1
-
-	// Обработка WM_SETCURSOR удалена отсюда, чтобы DefWindowProc правильно 
-	// отрисовывала курсор IDC_ARROW, который мы теперь указываем при регистрации класса
-
 	case WM_NCHITTEST:
 		stateMu.RLock()
 		activeBorder := hasBorder
 		stateMu.RUnlock()
-
 		if !activeBorder {
 			return HTTRANSPARENT
 		}
-
 		x := int32(int16(lParam & 0xFFFF))
 		y := int32(int16((lParam >> 16) & 0xFFFF))
-
 		vx, _, _ := procGetSystemMetrics.Call(SM_XVIRTUALSCREEN)
 		vy, _, _ := procGetSystemMetrics.Call(SM_YVIRTUALSCREEN)
 		vw, _, _ := procGetSystemMetrics.Call(SM_CXVIRTUALSCREEN)
@@ -512,50 +519,37 @@ func windowProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 			vx = 0
 			vy = 0
 		}
-
 		vLeft := int32(vx)
 		vTop := int32(vy)
 		vRight := vLeft + int32(vw)
 		vBottom := vTop + int32(vh)
-
-		if x < vLeft+borderThickness || x >= vRight-borderThickness ||
-			y < vTop+borderThickness || y >= vBottom-borderThickness {
+		if x < vLeft+borderThickness || x >= vRight-borderThickness || y < vTop+borderThickness || y >= vBottom-borderThickness {
 			return HTCLIENT
 		}
 		return HTTRANSPARENT
-
 	case WM_RBUTTONDOWN, WM_NCRBUTTONDOWN:
 		return 0
-
 	case WM_RBUTTONUP, WM_NCRBUTTONUP:
 		stateMu.Lock()
 		soundEnabled = !soundEnabled
 		enabled := soundEnabled
 		stateMu.Unlock()
-
 		if enabled {
-			fmt.Println("Звук при печати ВКЛЮЧЕН")
 			procBeep.Call(1000, 100)
 		} else {
-			fmt.Println("Звук при печати ОТКЛЮЧЕН")
 			procBeep.Call(300, 100)
 		}
 		return 0
-
 	case WM_LBUTTONDBLCLK, WM_NCLBUTTONDBLCLK:
-		fmt.Println("Двойной клик по рамке: Завершение работы...")
 		procBeep.Call(300, 150)
 		procPostQuitMessage.Call(0)
 		return 0
-
 	case WM_APP_REDRAW:
 		procInvalidateRect.Call(hwnd, 0, 0)
 		return 0
-
 	case WM_PAINT:
 		var ps PAINTSTRUCT
 		hdc, _, _ := procBeginPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
-
 		vw, _, _ := procGetSystemMetrics.Call(SM_CXVIRTUALSCREEN)
 		vh, _, _ := procGetSystemMetrics.Call(SM_CYVIRTUALSCREEN)
 		if vw == 0 || vh == 0 {
@@ -566,58 +560,47 @@ func windowProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 		}
 		width := int32(vw)
 		height := int32(vh)
-
 		bgBrush, _, _ := procCreateSolidBrush.Call(crTransparent)
 		fullRect := RECT{0, 0, width, height}
 		procFillRect.Call(hdc, uintptr(unsafe.Pointer(&fullRect)), bgBrush)
 		procDeleteObject.Call(bgBrush)
-
 		stateMu.RLock()
 		activeBorder := hasBorder
 		borderColor := currentBorderColor
 		stateMu.RUnlock()
-
 		if activeBorder {
 			borderBrush, _, _ := procCreateSolidBrush.Call(uintptr(borderColor))
-
 			top := RECT{0, 0, width, borderThickness}
 			bottom := RECT{0, height - borderThickness, width, height}
 			left := RECT{0, borderThickness, borderThickness, height - borderThickness}
 			right := RECT{width - borderThickness, borderThickness, width, height - borderThickness}
-
 			procFillRect.Call(hdc, uintptr(unsafe.Pointer(&top)), borderBrush)
 			procFillRect.Call(hdc, uintptr(unsafe.Pointer(&bottom)), borderBrush)
 			procFillRect.Call(hdc, uintptr(unsafe.Pointer(&left)), borderBrush)
 			procFillRect.Call(hdc, uintptr(unsafe.Pointer(&right)), borderBrush)
-
 			procDeleteObject.Call(borderBrush)
 		}
-
 		procEndPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
 		return 0
 	}
-
 	defProc := user32.NewProc("DefWindowProcW")
 	ret, _, _ := defProc.Call(hwnd, uintptr(msg), wParam, lParam)
 	return ret
 }
 
+//________________
+//Creates transparent top-level overlay window. createOverlayWindow
 func createOverlayWindow() {
 	className, _ := syscall.UTF16PtrFromString("OverlayClass")
-
 	var wc WNDCLASSEX
 	wc.Size = uint32(unsafe.Sizeof(wc))
 	wc.Style = CS_DBLCLKS
 	wc.WndProc = syscall.NewCallback(windowProc)
 	wc.ClassName = className
 	wc.Background = 0
-
-	// ЗАГРУЖАЕМ СТАНДАРТНЫЙ КУРСОР
 	cursor, _, _ := procLoadCursor.Call(0, uintptr(IDC_ARROW))
-	wc.Cursor = cursor // Присваиваем курсор-стрелку классу окна
-
+	wc.Cursor = cursor
 	procRegisterClassEx.Call(uintptr(unsafe.Pointer(&wc)))
-
 	vx, _, _ := procGetSystemMetrics.Call(SM_XVIRTUALSCREEN)
 	vy, _, _ := procGetSystemMetrics.Call(SM_YVIRTUALSCREEN)
 	vw, _, _ := procGetSystemMetrics.Call(SM_CXVIRTUALSCREEN)
@@ -630,18 +613,8 @@ func createOverlayWindow() {
 		vx = 0
 		vy = 0
 	}
-
-	hwnd, _, _ := procCreateWindowEx.Call(
-		WS_EX_TOPMOST|WS_EX_LAYERED|WS_EX_TOOLWINDOW|WS_EX_NOACTIVATE,
-		uintptr(unsafe.Pointer(className)),
-		0,
-		WS_POPUP,
-		vx, vy, vw, vh,
-		0, 0, 0, 0,
-	)
-
+	hwnd, _, _ := procCreateWindowEx.Call(WS_EX_TOPMOST|WS_EX_LAYERED|WS_EX_TOOLWINDOW|WS_EX_NOACTIVATE, uintptr(unsafe.Pointer(className)), 0, WS_POPUP, vx, vy, vw, vh, 0, 0, 0, 0)
 	overlayHwnd = hwnd
-
 	procSetLayeredWindowAttributes.Call(hwnd, crTransparent, 0, 1)
 	procShowWindow.Call(hwnd, 5)
 }
