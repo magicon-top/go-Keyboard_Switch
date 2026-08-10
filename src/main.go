@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"runtime"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -19,6 +20,8 @@ const (
 	WM_SYSKEYDOWN = 0x0104
 	WM_SYSKEYUP   = 0x0105
 	WM_SETCURSOR  = 0x0020
+	WM_MOUSEMOVE  = 0x0200
+	WM_MOUSELEAVE = 0x02A2
 
 	VK_LCONTROL = 0xA2
 	VK_RCONTROL = 0xA3
@@ -66,6 +69,15 @@ const (
 	ERROR_ALREADY_EXISTS = 183
 
 	IDC_ARROW = 32512
+
+	LOCALE_SLANGDISPLAYNAME = 0x0000006D
+	TRANSPARENT             = 1
+	TME_LEAVE               = 0x00000002
+	DT_LEFT                 = 0x00000000
+	DT_TOP                  = 0x00000000
+	DT_SINGLELINE           = 0x00000020
+	DT_NOCLIP               = 0x00000100
+	NONANTIALIASED_QUALITY  = 3
 )
 
 var HTTRANSPARENT = ^uintptr(0)
@@ -84,7 +96,11 @@ type MSG struct {
 	Wparam  uintptr
 	Lparam  uintptr
 	Time    uint32
-	Pt      struct{ X, Y int32 }
+	Pt      POINT
+}
+
+type POINT struct {
+	X, Y int32
 }
 
 type RECT struct {
@@ -127,40 +143,56 @@ type GUITHREADINFO struct {
 	RcCaret       RECT
 }
 
+type TRACKMOUSEEVENT struct {
+	CbSize      uint32
+	DwFlags     uint32
+	HwndTrack   uintptr
+	DwHoverTime uint32
+}
+
 var (
 	user32   = windows.NewLazySystemDLL("user32.dll")
 	kernel32 = windows.NewLazySystemDLL("kernel32.dll")
 	gdi32    = windows.NewLazySystemDLL("gdi32.dll")
 
-	procSetProcessDPIAware          = user32.NewProc("SetProcessDPIAware")
-	procSetWindowsHookEx            = user32.NewProc("SetWindowsHookExW")
-	procUnhookWindowsHookEx         = user32.NewProc("UnhookWindowsHookEx")
-	procCallNextHookEx              = user32.NewProc("CallNextHookEx")
-	procGetMessage                  = user32.NewProc("GetMessageW")
-	procDispatchMessage             = user32.NewProc("DispatchMessageW")
-	procGetForegroundWindow         = user32.NewProc("GetForegroundWindow")
-	procGetWindowThreadProcessId    = user32.NewProc("GetWindowThreadProcessId")
-	procGetKeyboardLayout           = user32.NewProc("GetKeyboardLayout")
-	procPostMessage                 = user32.NewProc("PostMessageW")
-	procGetKeyboardLayoutList       = user32.NewProc("GetKeyboardLayoutList")
-	procGetSystemMetrics            = user32.NewProc("GetSystemMetrics")
-	procCreateWindowEx              = user32.NewProc("CreateWindowExW")
-	procRegisterClassEx             = user32.NewProc("RegisterClassExW")
-	procShowWindow                  = user32.NewProc("ShowWindow")
-	procSetLayeredWindowAttributes  = user32.NewProc("SetLayeredWindowAttributes")
-	procBeginPaint                  = user32.NewProc("BeginPaint")
-	procEndPaint                    = user32.NewProc("EndPaint")
-	procInvalidateRect              = user32.NewProc("InvalidateRect")
-	procPostQuitMessage             = user32.NewProc("PostQuitMessage")
-	procFillRect                    = user32.NewProc("FillRect")
-	procLoadCursor                  = user32.NewProc("LoadCursorW")
-	procGetGUIThreadInfo            = user32.NewProc("GetGUIThreadInfo")
+	procSetProcessDPIAware        = user32.NewProc("SetProcessDPIAware")
+	procSetWindowsHookEx          = user32.NewProc("SetWindowsHookExW")
+	procUnhookWindowsHookEx       = user32.NewProc("UnhookWindowsHookEx")
+	procCallNextHookEx            = user32.NewProc("CallNextHookEx")
+	procGetMessage                = user32.NewProc("GetMessageW")
+	procDispatchMessage           = user32.NewProc("DispatchMessageW")
+	procGetForegroundWindow       = user32.NewProc("GetForegroundWindow")
+	procGetWindowThreadProcessId  = user32.NewProc("GetWindowThreadProcessId")
+	procGetKeyboardLayout         = user32.NewProc("GetKeyboardLayout")
+	procPostMessage               = user32.NewProc("PostMessageW")
+	procGetKeyboardLayoutList     = user32.NewProc("GetKeyboardLayoutList")
+	procGetSystemMetrics          = user32.NewProc("GetSystemMetrics")
+	procCreateWindowEx            = user32.NewProc("CreateWindowExW")
+	procRegisterClassEx           = user32.NewProc("RegisterClassExW")
+	procShowWindow                = user32.NewProc("ShowWindow")
+	procSetLayeredWindowAttributes = user32.NewProc("SetLayeredWindowAttributes")
+	procBeginPaint                = user32.NewProc("BeginPaint")
+	procEndPaint                  = user32.NewProc("EndPaint")
+	procInvalidateRect            = user32.NewProc("InvalidateRect")
+	procPostQuitMessage           = user32.NewProc("PostQuitMessage")
+	procFillRect                  = user32.NewProc("FillRect")
+	procLoadCursor                = user32.NewProc("LoadCursorW")
+	procGetGUIThreadInfo          = user32.NewProc("GetGUIThreadInfo")
+	procTrackMouseEvent           = user32.NewProc("TrackMouseEvent")
+	procDrawText                  = user32.NewProc("DrawTextW")
+	procGetCursorPos              = user32.NewProc("GetCursorPos")
+	procScreenToClient            = user32.NewProc("ScreenToClient")
 
-	procBeep        = kernel32.NewProc("Beep")
-	procCreateMutex = kernel32.NewProc("CreateMutexW")
+	procBeep          = kernel32.NewProc("Beep")
+	procCreateMutex   = kernel32.NewProc("CreateMutexW")
+	procGetLocaleInfo = kernel32.NewProc("GetLocaleInfoW")
 
 	procCreateSolidBrush = gdi32.NewProc("CreateSolidBrush")
 	procDeleteObject     = gdi32.NewProc("DeleteObject")
+	procSetBkMode        = gdi32.NewProc("SetBkMode")
+	procSetTextColor     = gdi32.NewProc("SetTextColor")
+	procCreateFont       = gdi32.NewProc("CreateFontW")
+	procSelectObject     = gdi32.NewProc("SelectObject")
 
 	hookHandle  uintptr
 	overlayHwnd uintptr
@@ -170,6 +202,9 @@ var (
 	hasBorder          bool   = false
 	soundEnabled       bool   = true
 	lastHKL            uintptr
+	isBorderHovered    bool   = false
+	hoverCount         int    = 0
+	cursorPt           POINT
 
 	pressedKey     uint32
 	pressTime      time.Time
@@ -182,6 +217,12 @@ var (
 
 	layoutsMu     sync.RWMutex
 	cachedLayouts []uintptr
+
+	keyColors = []uint32{
+		0x000000FF, // Ctrl - Red
+		0x00C0C0C0, // Shift - Light Gray
+		0x0000FFFF, // Alt - Yellow
+	}
 )
 
 const (
@@ -189,7 +230,7 @@ const (
 	crTransparent = 0x00FF00FF
 )
 
-//________________
+//________________________________________________________
 //Initializes a goroutine for playing sound effects. initSoundWorker
 func initSoundWorker() {
 	go func() {
@@ -201,7 +242,7 @@ func initSoundWorker() {
 	}()
 }
 
-//________________
+//________________________________________________________
 //Retrieves active system keyboard layouts from cache. getKeyboardLayouts
 func getKeyboardLayouts() []uintptr {
 	layoutsMu.RLock()
@@ -214,7 +255,7 @@ func getKeyboardLayouts() []uintptr {
 	return refreshKeyboardLayouts()
 }
 
-//________________
+//________________________________________________________
 //Refreshes cached list of system keyboard layouts. refreshKeyboardLayouts
 func refreshKeyboardLayouts() []uintptr {
 	count, _, _ := procGetKeyboardLayoutList.Call(0, 0)
@@ -229,7 +270,22 @@ func refreshKeyboardLayouts() []uintptr {
 	return layouts
 }
 
-//________________
+//________________________________________________________
+//Retrieves display name of language in uppercase for given layout handle. getLayoutName
+func getLayoutName(hkl uintptr) string {
+	lcid := uint32(uint16(hkl))
+	if lcid == 0 {
+		return "UNKNOWN"
+	}
+	buf := make([]uint16, 64)
+	ret, _, _ := procGetLocaleInfo.Call(uintptr(lcid), uintptr(LOCALE_SLANGDISPLAYNAME), uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
+	if ret == 0 {
+		return "UNKNOWN"
+	}
+	return strings.ToUpper(syscall.UTF16ToString(buf))
+}
+
+//________________________________________________________
 //Main application loop initializing window and hooks. main
 func main() {
 	runtime.LockOSThread()
@@ -245,6 +301,7 @@ func main() {
 	fmt.Println("Started successfully")
 	createOverlayWindow()
 	go trackLanguageChanges()
+	go trackMouseHoverLoop()
 	hook, _, _ := procSetWindowsHookEx.Call(uintptr(WH_KEYBOARD_LL), syscall.NewCallback(keyboardProc), 0, 0)
 	if hook == 0 {
 		fmt.Println("Failed to install keyboard hook")
@@ -262,7 +319,52 @@ func main() {
 	}
 }
 
-//________________
+//________________________________________________________
+//Polls cursor position and triggers redrawing strictly when position or hover state changes. trackMouseHoverLoop
+func trackMouseHoverLoop() {
+	ticker := time.NewTicker(30 * time.Millisecond)
+	defer ticker.Stop()
+	for range ticker.C {
+		if overlayHwnd == 0 {
+			continue
+		}
+
+		var pt POINT
+		procGetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))
+		procScreenToClient.Call(overlayHwnd, uintptr(unsafe.Pointer(&pt)))
+
+		vw, _, _ := procGetSystemMetrics.Call(SM_CXVIRTUALSCREEN)
+		vh, _, _ := procGetSystemMetrics.Call(SM_CYVIRTUALSCREEN)
+		if vw == 0 || vh == 0 {
+			w, _, _ := procGetSystemMetrics.Call(SM_CXSCREEN)
+			h, _, _ := procGetSystemMetrics.Call(SM_CYSCREEN)
+			vw = w
+			vh = h
+		}
+		width := int32(vw)
+		height := int32(vh)
+
+		isBorder := pt.X >= 0 && pt.Y >= 0 && pt.X < width && pt.Y < height &&
+			(pt.X < borderThickness || pt.X >= width-borderThickness || pt.Y < borderThickness || pt.Y >= height-borderThickness)
+
+		stateMu.Lock()
+		hoverChanged := (isBorderHovered != isBorder)
+		if hoverChanged {
+			isBorderHovered = isBorder
+			if isBorder {
+				hoverCount++
+				cursorPt = pt
+			}
+		}
+		stateMu.Unlock()
+
+		if hoverChanged {
+			procPostMessage.Call(overlayHwnd, WM_APP_REDRAW, 0, 0)
+		}
+	}
+}
+
+//________________________________________________________
 //Monitors active window layout changes periodically. trackLanguageChanges
 func trackLanguageChanges() {
 	ticker := time.NewTicker(100 * time.Millisecond)
@@ -292,7 +394,7 @@ func trackLanguageChanges() {
 	}
 }
 
-//________________
+//________________________________________________________
 //Updates overlay color based on selected layout index. updateBorderForHKL
 func updateBorderForHKL(hkl uintptr) {
 	layouts := getKeyboardLayouts()
@@ -322,12 +424,12 @@ func updateBorderForHKL(hkl uintptr) {
 	switch index {
 	case 0:
 		hasBorder = true
-		currentBorderColor = 0x000000FF
+		currentBorderColor = keyColors[0]
 	case 1:
 		hasBorder = false
 	case 2:
 		hasBorder = true
-		currentBorderColor = 0x0000FFFF
+		currentBorderColor = keyColors[2]
 	default:
 		hasBorder = false
 	}
@@ -337,7 +439,7 @@ func updateBorderForHKL(hkl uintptr) {
 	}
 }
 
-//________________
+//________________________________________________________
 //Processes keyboard low level hooks for shortcut events. keyboardProc
 func keyboardProc(nCode int, wParam uintptr, lParam uintptr) uintptr {
 	if nCode >= 0 {
@@ -365,11 +467,11 @@ func keyboardProc(nCode int, wParam uintptr, lParam uintptr) uintptr {
 				if !isComboPressed && time.Since(pressTime) <= maxTapDuration {
 					switch {
 					case isCtrl(vk):
-						go applyLanguage(0, 400, 0x000000FF)
+						go applyLanguage(0, 400, keyColors[0])
 					case isShift(vk):
 						go applyLanguage(1, 800, 0)
 					case isAlt(vk):
-						go applyLanguage(2, 1200, 0x0000FFFF)
+						go applyLanguage(2, 1200, keyColors[2])
 					}
 				}
 				pressedKey = 0
@@ -385,37 +487,37 @@ func keyboardProc(nCode int, wParam uintptr, lParam uintptr) uintptr {
 	return ret
 }
 
-//________________
+//________________________________________________________
 //Evaluates if key belongs to active target modifiers. isTargetKey
 func isTargetKey(vk uint32) bool {
 	return isCtrl(vk) || isShift(vk) || isAlt(vk)
 }
 
-//________________
+//________________________________________________________
 //Checks for Control virtual key codes. isCtrl
 func isCtrl(vk uint32) bool {
 	return vk == VK_LCONTROL || vk == VK_RCONTROL || vk == VK_CONTROL
 }
 
-//________________
+//________________________________________________________
 //Checks for Shift virtual key codes. isShift
 func isShift(vk uint32) bool {
 	return vk == VK_LSHIFT || vk == VK_RSHIFT || vk == VK_SHIFT
 }
 
-//________________
+//________________________________________________________
 //Checks for Alt virtual key codes. isAlt
 func isAlt(vk uint32) bool {
 	return vk == VK_LMENU || vk == VK_RMENU || vk == VK_MENU
 }
 
-//________________
+//________________________________________________________
 //Verifies if keyup corresponds to initial keydown event. isBaseKeyMatch
 func isBaseKeyMatch(k1, k2 uint32) bool {
 	return (isCtrl(k1) && isCtrl(k2)) || (isShift(k1) && isShift(k2)) || (isAlt(k1) && isAlt(k2))
 }
 
-//________________
+//________________________________________________________
 //Dispatches typing sound frequency to worker channel. playTypingSound
 func playTypingSound() {
 	stateMu.RLock()
@@ -453,7 +555,7 @@ func playTypingSound() {
 	}
 }
 
-//________________
+//________________________________________________________
 //Sends layout switch message to active window and focused control. applyLanguage
 func applyLanguage(index int, freq uint32, colorRGB uint32) {
 	layouts := getKeyboardLayouts()
@@ -492,12 +594,19 @@ func applyLanguage(index int, freq uint32, colorRGB uint32) {
 	}
 }
 
-//________________
+//________________________________________________________
 //Processes window messages for overlay rendering and clicks. windowProc
 func windowProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 	switch msg {
 	case WM_ERASEBKGND:
 		return 1
+	case WM_SETCURSOR, WM_MOUSEMOVE:
+		return 0
+	case WM_MOUSELEAVE:
+		stateMu.Lock()
+		isBorderHovered = false
+		stateMu.Unlock()
+		procPostMessage.Call(hwnd, WM_APP_REDRAW, 0, 0)
 	case WM_NCHITTEST:
 		stateMu.RLock()
 		activeBorder := hasBorder
@@ -508,7 +617,7 @@ func windowProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 		x := int32(int16(lParam & 0xFFFF))
 		y := int32(int16((lParam >> 16) & 0xFFFF))
 		vx, _, _ := procGetSystemMetrics.Call(SM_XVIRTUALSCREEN)
-		vy, _, _ := procGetSystemMetrics.Call(SM_YVIRTUALSCREEN)
+		vy, _, _ := procGetSystemMetrics.Call(SM_CYVIRTUALSCREEN)
 		vw, _, _ := procGetSystemMetrics.Call(SM_CXVIRTUALSCREEN)
 		vh, _, _ := procGetSystemMetrics.Call(SM_CYVIRTUALSCREEN)
 		if vw == 0 || vh == 0 {
@@ -560,14 +669,20 @@ func windowProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 		}
 		width := int32(vw)
 		height := int32(vh)
+
 		bgBrush, _, _ := procCreateSolidBrush.Call(crTransparent)
 		fullRect := RECT{0, 0, width, height}
 		procFillRect.Call(hdc, uintptr(unsafe.Pointer(&fullRect)), bgBrush)
 		procDeleteObject.Call(bgBrush)
+
 		stateMu.RLock()
 		activeBorder := hasBorder
 		borderColor := currentBorderColor
+		hovered := isBorderHovered
+		currentHoverCount := hoverCount
+		curPos := cursorPt
 		stateMu.RUnlock()
+
 		if activeBorder {
 			borderBrush, _, _ := procCreateSolidBrush.Call(uintptr(borderColor))
 			top := RECT{0, 0, width, borderThickness}
@@ -580,6 +695,54 @@ func windowProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 			procFillRect.Call(hdc, uintptr(unsafe.Pointer(&right)), borderBrush)
 			procDeleteObject.Call(borderBrush)
 		}
+
+		if hovered && currentHoverCount <= 3 {
+			layouts := getKeyboardLayouts()
+			labels := []string{"Ctrl - ", "Shift - ", "Alt - "}
+			fontName, _ := syscall.UTF16PtrFromString("Segoe UI")
+
+			hFont, _, _ := procCreateFont.Call(14, 0, 0, 0, 400, 0, 0, 0, 0, 0, 0, NONANTIALIASED_QUALITY, 0, uintptr(unsafe.Pointer(fontName)))
+			oldFont, _, _ := procSelectObject.Call(hdc, hFont)
+			procSetBkMode.Call(hdc, TRANSPARENT)
+
+			startX := curPos.X + 5
+			startY := curPos.Y + 5
+			if startX+55 > width {
+				startX = curPos.X - 55
+			}
+			if startY+80 > height {
+				startY = curPos.Y - 45
+			}
+
+			yOffset := startY
+			for i := 0; i < len(labels) && i < len(layouts); i++ {
+				langName := getLayoutName(layouts[i])
+
+				utf16Label, _ := syscall.UTF16FromString(labels[i])
+				utf16Lang, _ := syscall.UTF16FromString(langName)
+
+				rowColor := keyColors[i]
+
+				var labelWidth RECT
+				procDrawText.Call(hdc, uintptr(unsafe.Pointer(&utf16Label[0])), uintptr(int32(len(utf16Label)-1)), uintptr(unsafe.Pointer(&labelWidth)), DT_LEFT|DT_TOP|DT_SINGLELINE|0x00000400)
+				textW := labelWidth.Right - labelWidth.Left
+
+				labelRect := RECT{Left: startX, Top: yOffset, Right: startX + textW + 10, Bottom: yOffset + 20}
+				procSetTextColor.Call(hdc, uintptr(rowColor))
+				procDrawText.Call(hdc, uintptr(unsafe.Pointer(&utf16Label[0])), uintptr(int32(len(utf16Label)-1)), uintptr(unsafe.Pointer(&labelRect)), DT_LEFT|DT_TOP|DT_SINGLELINE|DT_NOCLIP)
+
+				langX := startX + textW
+				langRect := RECT{Left: langX, Top: yOffset, Right: langX + 200, Bottom: yOffset + 20}
+				procSetTextColor.Call(hdc, uintptr(rowColor))
+				procDrawText.Call(hdc, uintptr(unsafe.Pointer(&utf16Lang[0])), uintptr(int32(len(utf16Lang)-1)), uintptr(unsafe.Pointer(&langRect)), DT_LEFT|DT_TOP|DT_SINGLELINE|DT_NOCLIP)
+
+				yOffset += 12
+			}
+
+			procSelectObject.Call(hdc, oldFont)
+			procDeleteObject.Call(hFont)
+		}
+
 		procEndPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
 		return 0
 	}
@@ -588,7 +751,7 @@ func windowProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 	return ret
 }
 
-//________________
+//________________________________________________________
 //Creates transparent top-level overlay window. createOverlayWindow
 func createOverlayWindow() {
 	className, _ := syscall.UTF16PtrFromString("OverlayClass")
