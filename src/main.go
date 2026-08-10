@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"runtime"
 	"strings"
 	"sync"
@@ -10,6 +11,7 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/registry"
 )
 
 const (
@@ -155,33 +157,33 @@ var (
 	kernel32 = windows.NewLazySystemDLL("kernel32.dll")
 	gdi32    = windows.NewLazySystemDLL("gdi32.dll")
 
-	procSetProcessDPIAware        = user32.NewProc("SetProcessDPIAware")
-	procSetWindowsHookEx          = user32.NewProc("SetWindowsHookExW")
-	procUnhookWindowsHookEx       = user32.NewProc("UnhookWindowsHookEx")
-	procCallNextHookEx            = user32.NewProc("CallNextHookEx")
-	procGetMessage                = user32.NewProc("GetMessageW")
-	procDispatchMessage           = user32.NewProc("DispatchMessageW")
-	procGetForegroundWindow       = user32.NewProc("GetForegroundWindow")
-	procGetWindowThreadProcessId  = user32.NewProc("GetWindowThreadProcessId")
-	procGetKeyboardLayout         = user32.NewProc("GetKeyboardLayout")
-	procPostMessage               = user32.NewProc("PostMessageW")
-	procGetKeyboardLayoutList     = user32.NewProc("GetKeyboardLayoutList")
-	procGetSystemMetrics          = user32.NewProc("GetSystemMetrics")
-	procCreateWindowEx            = user32.NewProc("CreateWindowExW")
-	procRegisterClassEx           = user32.NewProc("RegisterClassExW")
-	procShowWindow                = user32.NewProc("ShowWindow")
+	procSetProcessDPIAware         = user32.NewProc("SetProcessDPIAware")
+	procSetWindowsHookEx           = user32.NewProc("SetWindowsHookExW")
+	procUnhookWindowsHookEx        = user32.NewProc("UnhookWindowsHookEx")
+	procCallNextHookEx             = user32.NewProc("CallNextHookEx")
+	procGetMessage                 = user32.NewProc("GetMessageW")
+	procDispatchMessage            = user32.NewProc("DispatchMessageW")
+	procGetForegroundWindow        = user32.NewProc("GetForegroundWindow")
+	procGetWindowThreadProcessId   = user32.NewProc("GetWindowThreadProcessId")
+	procGetKeyboardLayout          = user32.NewProc("GetKeyboardLayout")
+	procPostMessage                = user32.NewProc("PostMessageW")
+	procGetKeyboardLayoutList      = user32.NewProc("GetKeyboardLayoutList")
+	procGetSystemMetrics           = user32.NewProc("GetSystemMetrics")
+	procCreateWindowEx             = user32.NewProc("CreateWindowExW")
+	procRegisterClassEx            = user32.NewProc("RegisterClassExW")
+	procShowWindow                 = user32.NewProc("ShowWindow")
 	procSetLayeredWindowAttributes = user32.NewProc("SetLayeredWindowAttributes")
-	procBeginPaint                = user32.NewProc("BeginPaint")
-	procEndPaint                  = user32.NewProc("EndPaint")
-	procInvalidateRect            = user32.NewProc("InvalidateRect")
-	procPostQuitMessage           = user32.NewProc("PostQuitMessage")
-	procFillRect                  = user32.NewProc("FillRect")
-	procLoadCursor                = user32.NewProc("LoadCursorW")
-	procGetGUIThreadInfo          = user32.NewProc("GetGUIThreadInfo")
-	procTrackMouseEvent           = user32.NewProc("TrackMouseEvent")
-	procDrawText                  = user32.NewProc("DrawTextW")
-	procGetCursorPos              = user32.NewProc("GetCursorPos")
-	procScreenToClient            = user32.NewProc("ScreenToClient")
+	procBeginPaint                 = user32.NewProc("BeginPaint")
+	procEndPaint                   = user32.NewProc("EndPaint")
+	procInvalidateRect             = user32.NewProc("InvalidateRect")
+	procPostQuitMessage            = user32.NewProc("PostQuitMessage")
+	procFillRect                   = user32.NewProc("FillRect")
+	procLoadCursor                 = user32.NewProc("LoadCursorW")
+	procGetGUIThreadInfo           = user32.NewProc("GetGUIThreadInfo")
+	procTrackMouseEvent            = user32.NewProc("TrackMouseEvent")
+	procDrawText                   = user32.NewProc("DrawTextW")
+	procGetCursorPos               = user32.NewProc("GetCursorPos")
+	procScreenToClient             = user32.NewProc("ScreenToClient")
 
 	procBeep          = kernel32.NewProc("Beep")
 	procCreateMutex   = kernel32.NewProc("CreateMutexW")
@@ -202,8 +204,8 @@ var (
 	hasBorder          bool   = false
 	soundEnabled       bool   = true
 	lastHKL            uintptr
-	isBorderHovered    bool   = false
-	hoverCount         int    = 0
+	isBorderHovered    bool = false
+	hoverCount         int  = 0
 	cursorPt           POINT
 
 	pressedKey     uint32
@@ -228,7 +230,28 @@ var (
 const (
 	mutexName     = "Global\\LangSwitcherAppMutex"
 	crTransparent = 0x00FF00FF
+	appName       = "LangSwitcherApp"
 )
+
+//________________________________________________________
+//Checks Windows registry for current executable path and adds missing autorun key. ensureAutoStart
+func ensureAutoStart() {
+	exePath, err := os.Executable()
+	if err != nil {
+		return
+	}
+
+	key, err := registry.OpenKey(registry.CURRENT_USER, `SOFTWARE\Microsoft\Windows\CurrentVersion\Run`, registry.QUERY_VALUE|registry.SET_VALUE)
+	if err != nil {
+		return
+	}
+	defer key.Close()
+
+	val, _, err := key.GetStringValue(appName)
+	if err != nil || val != exePath {
+		_ = key.SetStringValue(appName, exePath)
+	}
+}
 
 //________________________________________________________
 //Initializes a goroutine for playing sound effects. initSoundWorker
@@ -296,6 +319,7 @@ func main() {
 		fmt.Println("Application already running")
 		return
 	}
+	ensureAutoStart()
 	refreshKeyboardLayouts()
 	initSoundWorker()
 	fmt.Println("Started successfully")
@@ -600,7 +624,7 @@ func windowProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 	switch msg {
 	case WM_ERASEBKGND:
 		return 1
-	case WM_SETCURSOR, WM_MOUSEMOVE:
+	case WM_MOUSEMOVE:
 		return 0
 	case WM_MOUSELEAVE:
 		stateMu.Lock()
