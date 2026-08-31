@@ -1,0 +1,14 @@
+[
+  {
+      //________________________________________________________
+      //Description Build Windows GUI app in compact/release mode
+      "label": "Go: Build Win GUI (Compact)",
+      "command": "go",
+      "args": [
+        "run",
+        "$ZED_WORKTREE_ROOT/../builder.go",
+        "-m=wgx"
+      ],
+      "save": "all"
+    },
+]
